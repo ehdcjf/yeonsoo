@@ -1,0 +1,16 @@
+{
+	"name": "@zombie/controller",
+	"version": "0.0.1",
+	"module": "index.ts",
+	"type": "module",
+	"devDependencies": {
+		"@zombie/interfaces": "0.0.1"
+	},
+	"dependencies": {
+		"@zombie/database": "0.0.1",
+		"@zombie/redis": "0.0.1",
+		"@zombie/utils": "0.0.1",
+		"cron": "^3.5.0",
+		"redis": "^4.7.0"
+	}
+}

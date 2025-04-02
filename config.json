@@ -1,0 +1,17 @@
+{
+	"mode": "development",
+	"ssh": {
+		"username": "onlyredis",
+		"host": "49.247.170.120",
+		"port": 22,
+		"password": "ci426600*",
+		"dstHost": "localhost",
+		"dstPort": 6379,
+		"srcHost": "127.0.0.1",
+		"srcPort": 6380
+	},
+	"macroId": 1,
+	"pool": {
+		"size": 1
+	}
+}

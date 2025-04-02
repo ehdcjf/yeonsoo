@@ -1,0 +1,23 @@
+{
+	"name": "zombie",
+	"module": "index.ts",
+	"type": "module",
+	"scripts": {
+		"compile:macro": "bun build  --compile ./app/macro/index.ts ./app/macro/zombie/zombie.ts --outfile out/worker.exe",
+		"compile:controller": "bun build --compile  --target=bun-linux-x64 ./app/controller/index.ts --outfile out/zctrl"
+	},
+	"devDependencies": {
+		"@types/bun": "latest"
+	},
+	"peerDependencies": {
+		"typescript": "^5.0.0"
+	},
+	"workspaces": [
+		"lib/*",
+		"app/*"
+	],
+	"dependencies": {
+		"redis": "^4.7.0",
+		"ssh2": "^1.16.0"
+	}
+}

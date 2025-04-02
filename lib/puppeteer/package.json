@@ -1,0 +1,14 @@
+{
+	"name": "@zombie/puppeteer",
+	"version": "0.0.1",
+	"module": "index.ts",
+	"type": "module",
+	"devDependencies": {
+		"@zombie/interfaces": "0.0.1"
+	},
+	"dependencies": {
+		"@zombie/utils": "0.0.1",
+		"chrome-launcher": "^1.1.2",
+		"puppeteer-real-browser": "^1.4.0"
+	}
+}

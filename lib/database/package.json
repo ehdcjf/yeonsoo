@@ -1,0 +1,9 @@
+{
+	"name": "@zombie/database",
+	"version": "0.0.1",
+	"module": "index.ts",
+	"type": "module",
+	"dependencies": {
+		"mysql2": "^3.12.0"
+	}
+}
