@@ -6,7 +6,6 @@ import { sleep } from 'bun'
 type Browser = ConnectResult["browser"];
 type Page = ConnectResult["page"];
 
-
 export class Yeonsoo {
     protected page!: Page;
     protected browser!: Browser;
@@ -52,7 +51,7 @@ export class Yeonsoo {
     public async init() {
         const chromePath = this.getChromePath();
         const context = await connect({
-            headless: false,
+            headless: true,
             customConfig: {
                 chromePath: chromePath,
             },
@@ -84,10 +83,11 @@ export class Yeonsoo {
     }
 
     public async login() {
-        await this.typeIntoInputByName('userInputId', 'kdch0823')
-        await this.typeIntoInputByName('userInputPw', 'dc66260177!')
+        await this.typeIntoInputByName('userInputId', Bun.env.ID!)
+        await this.typeIntoInputByName('userInputPw', Bun.env.PW!)
         await this.page.keyboard.press('Enter')
         await sleep(2000)
+        console.log('로그인^_^')
     }
 
 
@@ -104,43 +104,106 @@ export class Yeonsoo {
     }
 
     async listen() {
-        await this.page.goto('https://www.neti.go.kr/lh/ms/cs/atnlcListView.do?menuId=1000006046',{waitUntil:'networkidle2'})
+        await this.page.goto('https://www.neti.go.kr/lh/ms/cs/atnlcListView.do?menuId=1000006046', { waitUntil: 'networkidle2' })
         await sleep(2000)
         const list = await this.page.$$('#crseList>li')
         console.log(list.length);
-        
-        for(const li of list){
+
+        for (const li of list) {
+            const titleAtag = await li?.$("a.title");
+            const title = await titleAtag?.evaluate(v=>v.innerText);
+            console.log(title);
             const progress = await li.$('div.bar');
-            if(!progress) continue;
-            const progressBar = await progress.evaluate((e) => e.style.width); 
+            if (!progress) continue;
+            const progressBar = await progress.evaluate((e) => e.style.width);
             console.log(progressBar)
-            const nowProgress = Number(progressBar.replace('%',''));
-            if(nowProgress>=100) continue;
+            const nowProgress = Number(progressBar.replace('%', ''));
+            if (nowProgress >= 100) continue;
+
             const aTags = await li?.$$("a");
             if (!aTags) continue;
-            for(const aTag of aTags){
-                const content = await aTag.evaluate((e)=>e.innerText);
-                if(content!=='이어보기') continue;
+ 
+            for (const aTag of aTags) {
+                const content = await aTag.evaluate((e) => e.innerText);
+                if (content !== '이어보기') continue;
+
+                console.log('이어보기')
 
                 const [newPage] = await Promise.all([
                     new Promise<Page>(resolve =>
-                      this.browser.once('targetcreated', async target => {
-                        const newPage = await target.page() ;
-                        await newPage?.bringToFront();
-                        resolve(newPage as Page);
-                      })
+                        this.browser.once('targetcreated', async target => {
+                            const newPage = await target.page();
+                            await newPage?.bringToFront();
+                            resolve(newPage as Page);
+                        })
                     ),
-                    this.page.realClick(aTag) 
-                  ]);
+                    this.page.realClick(aTag)
+                ]);
+                this.page = newPage;
+            
+                await sleep(2000);
+                const video = await this.page.$('video')
+                
+                if (!video) continue;
+                console.log('video 발견!')
+                const button = await this.page.$('button.vjs-big-play-button');
+                if (!button) continue;
+                this.page.realClick(button)
+                console.log('video 시작!')
+
+                while(true){
+                    let remainTime = null;
+                    do {
+                        const remainSpan = await this.page.$('.vjs-remaining-time-display');
+                        if (!remainSpan) break;
+                        remainTime = await remainSpan.evaluate((v) => v.innerHTML);
+                        console.log(remainTime);
+                        await sleep(2000)
+                    } while (remainTime != '0:00')
+                    const nextBtn = await this.page.$('button.playerBtnafter');
+                    if (nextBtn) this.page.realClick(nextBtn)
+                    await this.page.reload()
+                    await sleep(2000)
+                }
+               
+                
 
 
-                  console.log(newPage)
-            }    
+                //   const tooltip = await this.page.$('.click_tooltip')
+                //   if(tooltip){
+                //       const text = await tooltip?.evaluate((e)=>
+                //           e.innerHTML
+                //       )
+
+                //       if(text=='다음'){
+                //         const nextBtn = await this.page.$('button.playerBtnafter');
+                //         if(nextBtn) this.page.realClick(nextBtn)
+                //       }
+                //   }else{
+
+
+
+                //   }
+                // await this.watch(newPage)
+            }
+        }
+    }
+
+    private async watch(page: Page) {
+
+        const tooltip = await page.$('.click_tooltip')
+        if (tooltip) {
+            const text = await tooltip?.evaluate((e) =>
+                e.innerHTML
+            )
+            console.log(text)
+        } else {
+            console.log('no tool-tip')
+            const video = await page.$('video');
+            console.log(video)
+
         }
 
-        
-        
-        
     }
 
 }
