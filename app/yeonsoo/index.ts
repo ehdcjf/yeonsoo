@@ -12,6 +12,23 @@ export class Yeonsoo {
 
     constructor() { }
 
+
+    async run(){
+
+        while(true){
+            try{
+                
+                await this.init()
+                await this.login()
+                await this.listen()
+            }catch(err){
+                console.error(err)
+                await this.kill()
+            }
+        }
+
+    }
+
     private getChromePath() {
         const platform = os.platform();
         const possiblePaths: string[] = [];
@@ -46,6 +63,11 @@ export class Yeonsoo {
             process.exit(1);
         }
         return chromePath;
+    }
+
+    public async kill(){
+        if(!this.page.isClosed()) await this.page.close()
+        if(this.browser.connected) await this.browser.close()
     }
 
     public async init() {
@@ -126,9 +148,7 @@ export class Yeonsoo {
             for (const aTag of aTags) {
                 const content = await aTag.evaluate((e) => e.innerText);
                 if (content !== '이어보기') continue;
-
                 console.log('이어보기')
-
                 const [newPage] = await Promise.all([
                     new Promise<Page>(resolve =>
                         this.browser.once('targetcreated', async target => {
@@ -152,18 +172,51 @@ export class Yeonsoo {
                 console.log('video 시작!')
 
                 while(true){
+                    await sleep(3000)
                     let remainTime = null;
-                    do {
-                        const remainSpan = await this.page.$('.vjs-remaining-time-display');
-                        if (!remainSpan) break;
-                        remainTime = await remainSpan.evaluate((v) => v.innerHTML);
-                        console.log(remainTime);
-                        await sleep(2000)
-                    } while (remainTime != '0:00')
-                    const nextBtn = await this.page.$('button.playerBtnafter');
-                    if (nextBtn) this.page.realClick(nextBtn)
+                    const remainSpan = await this.page.$('.vjs-remaining-time-display');
+                    if(remainSpan){
+                        do {
+                            if (!remainSpan) break;
+                            const temp = await remainSpan.evaluate((v) => v.innerHTML);
+                            if(temp==remainTime){
+                                await sleep(2000)
+                                const playBtn = await this.page.$('button.vjs-big-play-button');
+                                if (!playBtn) continue;
+                                this.page.realClick(playBtn)
+                                console.log('video 시작!')
+                            }
+                            remainTime = temp
+                            console.log(remainTime);
+
+                            await sleep(5000)
+                        } while (remainTime != '0:00')
+                    }
+                    console.log('다음')
+                    await sleep(3000)
+                    const nextBtn = await this.page.$('div#next-btn');
+                    if (nextBtn) {
+                            try{
+                                await this.page.realClick(nextBtn)
+                            }catch{
+                                await this.page.click('div#next-btn')
+                            }
+                       
+
+                      
+                    }
+
+                    await sleep(3000)
+                    const quizBtn = await this.page.$('div.quizShowBtn');
+                    if(quizBtn) await this.page.realClick(quizBtn)
+
                     await this.page.reload()
-                    await sleep(2000)
+                    await sleep(3000)
+                    // else{
+                    //     console.log('button 없음')
+                    // }
+                    // await this.page.reload()
+                    // await sleep(2000)
                 }
                
                 
@@ -210,10 +263,7 @@ export class Yeonsoo {
 
 
 const test = new Yeonsoo()
-await test.init()
-await test.login()
-await test.listen()
-
+await test.run()
 
 // name  userInputId
 // name  userInputPw
