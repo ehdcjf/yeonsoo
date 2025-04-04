@@ -1,32 +1,51 @@
-import { connect, type ConnectResult } from "puppeteer-real-browser";
+import { connect, type ConnectResult} from "puppeteer-real-browser";
 import os from 'os'
 import path from 'path'
 import { existsSync } from 'fs'
 import { sleep } from 'bun'
 type Browser = ConnectResult["browser"];
 type Page = ConnectResult["page"];
+type WEAKDAY = '월' | '화' | '수' | '목' | '금'
+
+
 
 export class Yeonsoo {
     protected page!: Page;
     protected browser!: Browser;
 
+    private TIME_TABLE: Record<WEAKDAY, number[]> = {
+        '월': [1, 3, 5, 6, 7, 8],
+        '화': [1, 3, 6, 7, 8],
+        '수': [3, 4, 6, 7, 8],
+        '목': [1, 3, 5, 6],
+        '금': [2, 4, 6, 7],
+    }
+
+    private LECTURE_TIME = [
+        [], //0
+        [520, 570], //1
+        [580, 630], //2
+        [640, 690], //3
+        [740, 790], //4
+        [800, 850], //5
+        [860, 910], //6
+        [920, 970], //7
+        [980, 1030], //8
+    ]
+
     constructor() { }
 
-
-    async run(){
-
-        while(true){
-            try{
-                
+    async run() {
+        while (true) {
+            try {
                 await this.init()
                 await this.login()
-                await this.listen()
-            }catch(err){
+                await this.getLectureList()
+            } catch (err) {
                 console.error(err)
                 await this.kill()
             }
         }
-
     }
 
     private getChromePath() {
@@ -65,15 +84,12 @@ export class Yeonsoo {
         return chromePath;
     }
 
-    public async kill(){
-        if(!this.page.isClosed()) await this.page.close()
-        if(this.browser.connected) await this.browser.close()
-    }
+
 
     public async init() {
         const chromePath = this.getChromePath();
         const context = await connect({
-            headless: true,
+            headless: false,
             customConfig: {
                 chromePath: chromePath,
             },
@@ -113,6 +129,186 @@ export class Yeonsoo {
     }
 
 
+
+    async getAllLectureList(){
+        await this.page.goto('https://www.neti.go.kr/lh/ms/cs/atnlcListView.do?menuId=1000006046', { waitUntil: 'networkidle2' })
+        await sleep(2000)
+        const lists = await this.page.$$('#crseList>li')
+        return lists
+    }
+
+    // async findRemainLecture(lists:ElementHandle<HTMLLIElement>[]):Promise<ElementHandle<HTMLLIElement>[]>{
+    //     const rList = [];
+    //     for (const li of lists) {
+    //         const titleAtag = await li.$("a.title");
+    //         const title = await titleAtag?.evaluate(v => v.innerText);
+    //         if (!title) continue;
+    //         // 진행상태 확인
+    //         const progress = await li.$('div.bar');
+    //         if (!progress) continue;
+    //         const progressBar = await progress.evaluate((e) => e.style.width);
+    //         console.log(`${title}: ${progressBar}`)
+    //         const nowProgress = Number(progressBar.replace('%', ''));
+    //         // 전부 다 들은거 스킵
+    //         if (nowProgress >= 100) {
+    //             console.log(`SKIP ${title}: ${nowProgress}`)
+    //             continue;
+    //         }
+    //         rList.push(li);
+    //     }
+    //     return rList;
+    // }
+
+
+    async getLectureList() {
+        // const allLectures = await this.getAllLectureList() 
+        // const remainLectures = await this.findRemainLecture(allLectures)
+        await this.page.goto('https://www.neti.go.kr/lh/ms/cs/atnlcListView.do?menuId=1000006046', { waitUntil: 'networkidle2' })
+        await sleep(2000)
+        const lists = await this.page.$$('#crseList>li')
+        for (const li of lists) {
+            const titleAtag = await li?.$("a.title");
+            const title = await titleAtag?.evaluate(v => v.innerText);
+            if (!title) continue;
+            // 진행상태 확인
+            const progress = await li.$('div.bar');
+            if (!progress) continue;
+            const progressBar = await progress.evaluate((e) => e.style.width);
+            console.log(`${title}: ${progressBar}`)
+            const nowProgress = Number(progressBar.replace('%', ''));
+            // 전부 다 들은거 스킵
+            if (nowProgress >= 100) {
+                console.log(`SKIP ${title}: ${nowProgress}`)
+                continue;
+            }
+
+            // 이어보기 찾기
+            const aTags = await li?.$$("a");
+            if (!aTags) continue;
+
+            for(const aTag of aTags){
+                const content = await aTag.evaluate((e) => e.innerText);
+                if (content !== '이어보기' && content !== '학습하기')  continue;
+                console.log(`${title} ${content}`)
+                const [newPage] = await Promise.all([
+                    new Promise<Page>(resolve =>
+                        this.browser.once('targetcreated', async target => {
+                            const newPage = await target.page();
+                            await newPage?.bringToFront();
+                            resolve(newPage as Page);
+                        })
+                    ),
+                    this.page.realClick(aTag)
+                ]);
+                this.page = newPage;
+                await this.watchVideo()
+            }
+        }
+    }
+
+
+    async watchVideo(){
+        await sleep(2000);
+        const video = await this.page.$('video')
+        if (!video) return;
+        console.log('video 발견!')
+        await this.clickQuizButton()
+
+        const titleTag = await this.page.$('title');
+        if (titleTag) {
+            const videoTitle = await titleTag.evaluate(e => e.innerText)
+            console.log(videoTitle)
+        }
+
+        const button = await this.page.$('button.vjs-big-play-button');
+        if (!button) return;
+        await this.page.realClick(button)
+        console.log(`video 시작!`)
+        while (true) {
+            await this.waitUntilAvailableTime()
+            let remainTime = null;
+            const remainSpan = await this.page.$('.vjs-remaining-time-display');
+            if (remainSpan) {
+                do {
+                    if (!remainSpan) break;
+                    const temp = await remainSpan.evaluate((v) => v.innerHTML);
+                    if (temp == remainTime) {
+                        await sleep(2000)
+                        const playBtn = await this.page.$('button.vjs-big-play-button');
+                        if (!playBtn) continue;
+                        this.page.realClick(playBtn)
+                        console.log('video 시작!')
+                    }
+                    remainTime = temp
+                    console.log(remainTime);
+
+                    await sleep(10000)
+                } while (remainTime != '0:00')
+            }
+            console.log('다음')
+            await sleep(3000)
+            const nextBtn = await this.page.$('div#next-btn');
+            if (nextBtn) {
+                try {
+
+                    try {
+                        await this.page.realClick(nextBtn)
+                    } catch {
+                        await this.page.click('div#next-btn')
+                    }
+                } catch { }
+            }
+
+            await sleep(3000)
+            await this.clickQuizButton()
+            await this.page.reload()
+            await sleep(3000)
+
+        }
+
+
+    }
+
+
+    // 요일, 시간
+    private getNow() {
+        const now = new Intl.DateTimeFormat("ko-KR", { weekday: 'short', hour: "numeric", minute: "numeric", hour12: false }).format(new Date())
+        const weekday = now[1] as WEAKDAY
+        const hour = +now.substring(4, 6) * 60
+        const minute = +now.substring(7, 9)
+        const time = hour + minute
+        return { weekday, time }
+    }
+
+    // 수강 가능한 시간인지 확인
+    private isAvailableTime() {
+        const { weekday, time } = this.getNow();
+        for (const tb of this.TIME_TABLE[weekday]) {
+            const [start, end] = this.LECTURE_TIME[tb]
+            if (time >= start && time <= end) return false;
+        }
+        return true;
+    }
+
+    // 수강 가능할때까지 기다리기
+    async waitUntilAvailableTime() {
+        while (true) {
+            if (this.isAvailableTime()) break;
+            await sleep(1000 * 60) // 1분 대기
+            console.log('지금은 수업시간')
+        }
+        console.log('연수 시청 ㄱㄱ')
+    }
+
+    private async clickQuizButton() {
+        const quizBtn = await this.page.$('div.quizShowBtn');
+        if (quizBtn) {
+            try {
+                await this.page.realClick(quizBtn, { maxTries: 3 })
+            } catch { }
+        }
+    }
+
     private async typeIntoInputByName(targetName: string, text: string): Promise<void> {
         try {
             const selector = `input[name="${targetName}"]`;
@@ -125,138 +321,9 @@ export class Yeonsoo {
         }
     }
 
-    async listen() {
-        await this.page.goto('https://www.neti.go.kr/lh/ms/cs/atnlcListView.do?menuId=1000006046', { waitUntil: 'networkidle2' })
-        await sleep(2000)
-        const list = await this.page.$$('#crseList>li')
-        console.log(list.length);
-
-        for (const li of list) {
-            const titleAtag = await li?.$("a.title");
-            const title = await titleAtag?.evaluate(v=>v.innerText);
-            console.log(title);
-            const progress = await li.$('div.bar');
-            if (!progress) continue;
-            const progressBar = await progress.evaluate((e) => e.style.width);
-            console.log(progressBar)
-            const nowProgress = Number(progressBar.replace('%', ''));
-            if (nowProgress >= 100) continue;
-
-            const aTags = await li?.$$("a");
-            if (!aTags) continue;
- 
-            for (const aTag of aTags) {
-                const content = await aTag.evaluate((e) => e.innerText);
-                if (content !== '이어보기') continue;
-                console.log('이어보기')
-                const [newPage] = await Promise.all([
-                    new Promise<Page>(resolve =>
-                        this.browser.once('targetcreated', async target => {
-                            const newPage = await target.page();
-                            await newPage?.bringToFront();
-                            resolve(newPage as Page);
-                        })
-                    ),
-                    this.page.realClick(aTag)
-                ]);
-                this.page = newPage;
-            
-                await sleep(2000);
-                const video = await this.page.$('video')
-                
-                if (!video) continue;
-                console.log('video 발견!')
-                const button = await this.page.$('button.vjs-big-play-button');
-                if (!button) continue;
-                this.page.realClick(button)
-                console.log('video 시작!')
-
-                while(true){
-                    await sleep(3000)
-                    let remainTime = null;
-                    const remainSpan = await this.page.$('.vjs-remaining-time-display');
-                    if(remainSpan){
-                        do {
-                            if (!remainSpan) break;
-                            const temp = await remainSpan.evaluate((v) => v.innerHTML);
-                            if(temp==remainTime){
-                                await sleep(2000)
-                                const playBtn = await this.page.$('button.vjs-big-play-button');
-                                if (!playBtn) continue;
-                                this.page.realClick(playBtn)
-                                console.log('video 시작!')
-                            }
-                            remainTime = temp
-                            console.log(remainTime);
-
-                            await sleep(5000)
-                        } while (remainTime != '0:00')
-                    }
-                    console.log('다음')
-                    await sleep(3000)
-                    const nextBtn = await this.page.$('div#next-btn');
-                    if (nextBtn) {
-                            try{
-                                await this.page.realClick(nextBtn)
-                            }catch{
-                                await this.page.click('div#next-btn')
-                            }
-                       
-
-                      
-                    }
-
-                    await sleep(3000)
-                    const quizBtn = await this.page.$('div.quizShowBtn');
-                    if(quizBtn) await this.page.realClick(quizBtn)
-
-                    await this.page.reload()
-                    await sleep(3000)
-                    // else{
-                    //     console.log('button 없음')
-                    // }
-                    // await this.page.reload()
-                    // await sleep(2000)
-                }
-               
-                
-
-
-                //   const tooltip = await this.page.$('.click_tooltip')
-                //   if(tooltip){
-                //       const text = await tooltip?.evaluate((e)=>
-                //           e.innerHTML
-                //       )
-
-                //       if(text=='다음'){
-                //         const nextBtn = await this.page.$('button.playerBtnafter');
-                //         if(nextBtn) this.page.realClick(nextBtn)
-                //       }
-                //   }else{
-
-
-
-                //   }
-                // await this.watch(newPage)
-            }
-        }
-    }
-
-    private async watch(page: Page) {
-
-        const tooltip = await page.$('.click_tooltip')
-        if (tooltip) {
-            const text = await tooltip?.evaluate((e) =>
-                e.innerHTML
-            )
-            console.log(text)
-        } else {
-            console.log('no tool-tip')
-            const video = await page.$('video');
-            console.log(video)
-
-        }
-
+    public async kill() {
+        if (!this.page.isClosed()) await this.page.close()
+        if (this.browser.connected) await this.browser.close()
     }
 
 }
